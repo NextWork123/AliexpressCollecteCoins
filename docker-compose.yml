@@ -1,0 +1,30 @@
+services:
+  coin-collector:
+    build: .
+    container_name: aliexpress-coin-collector
+    env_file:
+      - .env
+    environment:
+      TZ: ${TZ:-Europe/Rome}
+      RUN_ON_SCHEDULE: "1"
+      # Optional random offset (minutes) added to the daily run time
+      # JITTER_MINUTES: "0"
+    volumes:
+      # Named volume: keeps the saved session + debug screenshots between
+      # restarts/updates. Ownership is inherited from the image (pwuser).
+      - coin-data:/data
+    restart: unless-stopped
+
+    # Resource caps for a small always-on mini PC
+    mem_limit: 768m
+    cpus: 1.0
+
+    # Keep log files small on disk
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+volumes:
+  coin-data:

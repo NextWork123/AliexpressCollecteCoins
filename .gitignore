@@ -6,9 +6,8 @@ __pycache__/
 # Environment variables - IMPORTANT to avoid committing credentials
 .env
 
-# Chrome WebDriver
-chromedriver.exe
-*.log
+# Runtime data (saved session cookies, debug screenshots)
+data/
 
 # Virtual environment
 venv/
@@ -29,3 +28,6 @@ build/
 # OS specific files
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log

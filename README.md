@@ -1,132 +1,155 @@
-# AliExpress Coin Collector
+# AliExpress Coin Collector (Docker headless)
 
-An automated tool to help collect daily coins on AliExpress with human-like interactions to avoid detection.
+Automazione per raccogliere le coin giornaliere di AliExpress con un browser
+**headless** che gira in **Docker**, pensata per un mini PC sempre acceso a
+basso consumo.
 
-## Features
+## Cosa fa (stesso flusso della versione originale)
 
-- Automatic login to AliExpress account
-- Changes region to Korea (for maximum coin rewards)
-- Collects daily coins with realistic human-like behavior
-- Interactive manual confirmation steps for critical actions
-- Secure credential management using environment variables
+1. Apre la pagina delle coin
+2. Effettua il **login** con comportamento "umano" (digitazione lenta,
+   refusi occasionali corretti, pause casuali) — se la sessione salvata non è
+   più valida
+3. Cambia il **paese di destinazione in Corea** (ricompensa coin massima)
+4. Clicca il pulsante **Collect** giornaliero
+5. Se qualcosa fallisce, **riparte dal punto 1** fino a `MAX_ATTEMPTS` cicli
 
-## Prerequisites
+Miglioramenti rispetto alla versione Selenium:
 
-- Python 3.7+
-- Google Chrome browser
-- A valid AliExpress account
+- **Niente gestione di chromedriver**: l'immagine Docker ufficiale Playwright
+  include già Chromium e i driver (multi-arch: amd64 **e** arm64)
+- **Persistenza della sessione**: i cookie vengono salvati in `/data`, così
+  nelle esecuzioni successive (se ancora validi) il login viene saltato
+- **Schedulatore integrato**: il container resta attivo e raccoglie ogni 24h
+  **allo stesso orario in cui è avvenuta la raccolta precedente** (l'orario è
+  memorizzato e sopravvive ai restart), senza Task Scheduler né cron
+- **Screenshot di debug** salvati automaticamente quando un passo fallisce
+- **Rilevamento captcha**: se compare una sfida anti-bot lo segnala nei log
 
-## Installation
+## Requisiti
 
-1. Clone this repository:
-   ```
-   git clone https://github.com/YOUR_USERNAME/AliExpress-Coin-Collector.git
-   cd AliExpress-Coin-Collector
-   ```
+- [Docker](https://docs.docker.com/get-docker/) (con Docker Compose v2)
+- Un account AliExpress valido
 
-2. Install required packages:
-   ```
-   pip install -r requirements.txt
-   ```
+> Su un mini PC ARM (es. Orange Pi, Raspberry Pi 4/5) funziona allo stesso
+> modo: l'immagine Playwright è multi-arch.
 
-3. Create a `.env` file for your credentials:
-   ```
-   cp .env.example .env
-   ```
+## Avvio rapido
 
-4. Edit the `.env` file with your AliExpress login credentials:
-   ```
-   ALIEXPRESS_EMAIL=your_actual_email@example.com
-   ALIEXPRESS_PASSWORD=your_actual_password
-   ```
+```bash
+# 1. copia la cartella del progetto sul mini PC
+# 2. crea il file .env con le tue credenziali
+cp .env.example .env
+nano .env            # metti email e password reali, e l'orario preferito
 
-## Usage
+# 3. builda e avvia in background
+docker compose up -d --build
 
-Run the script with:
-
+# guarda i log
+docker compose logs -f
 ```
-python collect_coins.py
+
+Il container resta attivo 24/7: raccoglie **subito alla prima esecuzione**, poi
+ogni 24h allo stesso orario in cui è avvenuta la raccolta precedente. Con
+`restart: unless-stopped` torna da solo dopo un riavvio del PC (e riprende
+l'orario memorizzato, anche se il PC è stato spento per qualche ora/giorno).
+
+Per una **prova immediata** (senza aspettare lo scheduler):
+
+```bash
+RUN_ON_SCHEDULE=0 docker compose run --rm coin-collector
 ```
 
-The script will:
-1. Open a Chrome browser window
-2. Navigate to the AliExpress coin collection page
-3. Log in with your credentials from the `.env` file
-4. Ask for manual confirmation at critical steps (to ensure correct elements are clicked)
-5. Change region to Korea for maximum coin benefits
-6. Collect the daily coins
-7. Close the browser when complete
+## Configurazione (variabili in `.env`)
 
-## Automated Daily Collection with Windows Task Scheduler
+| Variabile            | Default | Descrizione                                          |
+| -------------------- | ------- | ---------------------------------------------------- |
+| `ALIEXPRESS_EMAIL`   | —       | **Obbligatoria** — email dell'account                |
+| `ALIEXPRESS_PASSWORD`| —       | **Obbligatoria** — password dell'account             |
+| `RUN_ON_SCHEDULE`    | `1`     | `1` = resta attivo (schedulatore 24h), `0` = esegue subito ed esce |
+| `TZ`                 | `Europe/Rome` | Timezone usata per l'orario e i log             |
+| `JITTER_MINUTES`     | `0`     | Offset casuale (0-N minuti) aggiunto all'orario giornaliero |
+| `HEADLESS`           | `true`  | `false` solo per debug locale con browser visibile   |
+| `MAX_ATTEMPTS`       | `3`     | Numero massimo di cicli completi per esecuzione      |
+| `COIN_URL`           | link coin | URL della pagina coin                            |
 
-You can set up Windows Task Scheduler to run the script automatically once per day:
+## Dati salvati (volume `coin-data`)
 
-### Create a Batch File
+- `data/storage_state.json` — cookie di sessione (salta il login alle
+  esecuzioni successive)
+- `data/schedule.json` — orario dell'ultima raccolta (ancora del ciclo 24h)
+- `data/debug/*.png` — screenshot dei punti critici (click Collect, errori)
 
-1. Create a file named `run_collector.bat` in the project directory with the following content:
-   ```bat
-   @echo off
-   cd /d %~dp0
-   echo Running AliExpress Coin Collector at %date% %time%
-   python collect_coins.py
-   echo Collection completed at %date% %time%
-   pause
-   ```
+Per recuperarli sul PC:
 
-### Set Up Task Scheduler
+```bash
+docker run --rm -v aliexpresscollectecoins_coin-data:/data -v "$PWD":/out alpine \
+  cp -r /data /out/
+```
 
-1. Press **Win + S** and search for "Task Scheduler"
-2. Click on "Create Basic Task..." in the right panel
-3. Enter a name (e.g., "AliExpress Coin Collector") and description
-4. Select "Daily" for the trigger and set your preferred time (e.g., 10:00 AM)
-5. Select "Start a program" for the action
-6. Browse and select your `run_collector.bat` file
-7. Set the "Start in" field to your project directory path (e.g., `C:\Users\username\AliExpress-Coin-Collector`)
-8. Check "Open the Properties dialog..." and click Finish
-9. In the Properties dialog:
-   - Go to the "General" tab and check "Run whether user is logged in or not"
-   - Go to the "Settings" tab and uncheck "Stop the task if it runs longer than..."
-   - Click "OK" to save the task
+(o `docker compose exec` con un'immagine temporanea a piacere)
 
-### Important Notes about Automation
+## Immagine pubblica su GitHub Container Registry
 
-- The script requires manual confirmation steps, so fully unattended operation isn't possible with the current version
-- If you want completely unattended operation, you would need to modify the script to remove the `input()` prompts
-- Running automated scripts that interact with websites may violate terms of service
-- Use at your own risk and consider AliExpress's policies
+Il workflow in `.github/workflows/docker-publish.yml` pubblica automaticamente
+l'immagine su [GHCR](https://ghcr.io) a ogni push su `main` (tag `latest`) e a
+ogni tag `v*` (tag semver), in versione **multi-arch** (`linux/amd64` +
+`linux/arm64`): funziona quindi sia su mini PC x86 che ARM.
 
-## Interactive Confirmation Steps
+Su qualsiasi macchina con Docker:
 
-This script uses interactive confirmations at critical points to ensure the correct elements are being selected. When prompted:
+```bash
+docker pull ghcr.io/<owner>/aliexpresscollectecoins:latest
 
-1. The target element will be highlighted with a red border
-2. You'll be asked to press Enter to proceed
-3. The script will then click the highlighted element and continue
+docker run -d --name aliexpress-coin-collector \
+  --restart unless-stopped \
+  -v coin-data:/data \
+  -e TZ=Europe/Rome \
+  -e ALIEXPRESS_EMAIL="..." \
+  -e ALIEXPRESS_PASSWORD="..." \
+  ghcr.io/<owner>/aliexpresscollectecoins:latest
+```
 
-This design prevents errors if AliExpress changes its interface layout.
+(`<owner>` = il tuo account/organizzazione GitHub; il nome immagine segue
+quello del repo, in minuscolo.)
 
-## Security
+Repo privato: `docker login ghcr.io` prima del pull, con un token GitHub con
+scope `packages:pull`.
 
-- Your credentials are stored locally in the `.env` file, which should NEVER be committed to Git
-- The `.gitignore` file includes `.env` to prevent accidental commits
-- The script uses environment variables instead of hardcoded credentials
+## Esecuzione locale senza Docker (debug)
+
+```bash
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+playwright install chromium
+HEADLESS=false RUN_ON_SCHEDULE=0 python collect_coins.py
+```
+
+## Consumo di risorse
+
+- Il browser è attivo solo pochi minuti al giorno (durante la raccolta)
+- Nel resto del tempo il container dorme: ~30 MB di RAM
+- Limiti imposti in `docker-compose.yml`: **768 MB di RAM, 1 CPU**
+- Log con rotazione automatica (massimo 10 MB)
 
 ## Troubleshooting
 
-If you encounter issues:
+- **`Login failed` / captcha nei log**: controlla gli screenshot in
+  `data/debug/`. Se AliExpress sta mostrando sfide anti-bot, riduci la
+  frequenza o verifica che l'account non richieda una verifica MFA.
+- **`element not found`**: AliExpress potrebbe aver cambiato il sito.
+  Controlla gli screenshot di debug e aggiorna i selettori in
+  `collect_coins.py` (sono tutti raggruppati nelle funzioni dedicate).
+- **Sessione sempre da rifare**: se `storage_state.json` non viene salvato,
+  il login verrà ripetuto a ogni esecuzione (funziona, ma consuma di più).
+- **Un'esecuzione fallisce** (captcha, rete, sito cambiato): il tentativo
+  successivo è allo stesso orario del giorno dopo; controlla i log e gli
+  screenshot di debug nel frattempo.
+- **Contenitore in crash-loop**: `docker compose logs` mostra l'errore
+  Python; di solito è un problema di rete o un selettore non trovato.
 
-- **Login Failures**: Ensure your credentials in the `.env` file are correct
-- **Element Not Found Errors**: AliExpress may have updated their website. Please create an issue on GitHub
-- **Captcha Challenges**: The script includes human-like behavior, but if you encounter captchas frequently, try reducing usage frequency
+## Avvisi legali
 
-## Legal Disclaimer
-
-This tool is provided for educational purposes only. Use at your own risk. The creator is not responsible for account suspensions, lost coins, or other issues that may arise from automated interactions with AliExpress. Always review the AliExpress Terms of Service before using automation tools.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-[MIT License](LICENSE)
+Questo tool è fornito a scopo educativo. L'automazione di interazioni con
+AliExpress potrebbe violare i loro Termini di Servizio: usalo a tuo rischio,
+il creatore non è responsabile di sospensioni dell'account o altri effetti.
